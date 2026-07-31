@@ -6,8 +6,16 @@ Coordinates the enhancement pipeline for one video.
 
 from __future__ import annotations
 
-from chainner_runner import ChaiNNerRunner
+from config import (
+    DEVICE,
+    HALF,
+    MODEL_PARAMS,
+    MODEL_PATH,
+    SCALE,
+    TILE,
+)
 from ffmpeg_utils import (
+    estimate_total_frames,
     extract_frames,
     rebuild_video,
     mux_audio,
@@ -16,6 +24,7 @@ from ffmpeg_utils import (
     has_audio,
 )
 from logger import get_logger
+from realesrgan_runner import RealESRGANRunner
 from video_job import VideoJob
 
 logger = get_logger("pipeline")
@@ -25,7 +34,14 @@ class VideoPipeline:
 
     def __init__(self):
 
-        self.chainner = ChaiNNerRunner()
+        self.realesrgan = RealESRGANRunner(
+            model_path=MODEL_PATH,
+            scale=SCALE,
+            tile=TILE,
+            half=HALF,
+            device=DEVICE,
+            model_params=MODEL_PARAMS,
+        )
 
     def process(self, job: VideoJob):
 
@@ -58,26 +74,34 @@ class VideoPipeline:
 
         logger.info("Extracting frames")
 
+        total_frames = estimate_total_frames(job.duration, job.fps)
+
         extract_frames(
             job.input_video,
             job.frames_directory,
+            total_frames=total_frames,
         )
 
     def run_ai(self, job: VideoJob):
 
-        logger.info("Running AI workflow")
+        logger.info("Running Real-ESRGAN upscaling")
 
-        # Will be implemented once we verify chaiNNer CLI.
-        self.chainner.run_workflow(None)
+        self.realesrgan.process_folder(
+            input_dir=job.frames_directory,
+            output_dir=job.enhanced_directory,
+        )
 
     def rebuild(self, job: VideoJob):
 
         logger.info("Rebuilding video")
 
+        total_frames = len(list(job.enhanced_directory.glob("*.png")))
+
         rebuild_video(
             frame_directory=job.enhanced_directory,
             output_video=job.rebuilt_video,
             fps=job.fps,
+            total_frames=total_frames,
         )
 
     def restore_audio(self, job: VideoJob):

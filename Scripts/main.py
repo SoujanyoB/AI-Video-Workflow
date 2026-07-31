@@ -14,6 +14,7 @@ from config import (
     OUTPUT_DIR,
     TEMP_DIR,
     LOGS_DIR,
+    MODELS_DIR,
     SUPPORTED_VIDEO_EXTENSIONS,
 )
 
@@ -34,6 +35,7 @@ def create_project_directories() -> None:
         OUTPUT_DIR,
         TEMP_DIR,
         LOGS_DIR,
+        MODELS_DIR,
     ):
         directory.mkdir(parents=True, exist_ok=True)
 

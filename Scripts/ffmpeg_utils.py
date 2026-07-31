@@ -10,10 +10,15 @@ does not contain any project-specific workflow logic.
 from __future__ import annotations
 
 import json
+import math
+import re
 import subprocess
+from fractions import Fraction
 from pathlib import Path
 
-from config import FFMPEG
+from tqdm import tqdm
+
+from config import AUDIO_BITRATE, AUDIO_CODEC, FFMPEG, FFPROBE
 from logger import get_logger
 
 logger = get_logger("ffmpeg")
@@ -47,9 +52,53 @@ def run_command(command: list[str]) -> subprocess.CompletedProcess:
     return result
 
 
+def run_ffmpeg_with_progress(
+    command: list[str],
+    total: int | None = None,
+    desc: str = "FFmpeg",
+) -> None:
+    """
+    Run an FFmpeg command and stream its progress to a tqdm bar.
+
+    Raises:
+        FFmpegError if the command returns a non-zero exit code.
+    """
+
+    logger.info("Running: %s", " ".join(command))
+
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        bufsize=1,
+    )
+
+    output_lines: list[str] = []
+
+    with tqdm(total=total, desc=desc, unit="frame", ncols=80) as pbar:
+        for raw_line in process.stdout:
+            line = raw_line.strip()
+            output_lines.append(line)
+
+            match = re.search(r"frame=\s*(\d+)", line, re.IGNORECASE)
+            if match:
+                frame = int(match.group(1))
+                if frame > pbar.n:
+                    pbar.update(frame - pbar.n)
+
+    return_code = process.wait()
+
+    if return_code != 0:
+        logger.error("\n".join(output_lines))
+        raise FFmpegError("\n".join(output_lines[-20:]))
+
+
 def extract_frames(
     input_video: Path,
     output_directory: Path,
+    total_frames: int | None = None,
     pattern: str = "frame_%06d.png",
 ) -> None:
     """
@@ -71,13 +120,18 @@ def extract_frames(
 
     logger.info("Extracting frames from %s", input_video.name)
 
-    run_command(command)
+    run_ffmpeg_with_progress(
+        command,
+        total=total_frames,
+        desc="Extract frames",
+    )
 
 
 def rebuild_video(
     frame_directory: Path,
     output_video: Path,
-    fps: float,
+    fps: str,
+    total_frames: int | None = None,
     pattern: str = "frame_%06d.png",
 ) -> None:
     """
@@ -103,7 +157,14 @@ def rebuild_video(
 
     logger.info("Rebuilding video %s", output_video.name)
 
-    run_command(command)
+    if total_frames is None:
+        total_frames = len(list(frame_directory.glob("*.png")))
+
+    run_ffmpeg_with_progress(
+        command,
+        total=total_frames,
+        desc="Rebuild video",
+    )
 
 
 def mux_audio(
@@ -130,10 +191,16 @@ def mux_audio(
         "-c:v",
         "copy",
         "-c:a",
-        "copy",
+        AUDIO_CODEC,
+    ]
+
+    if AUDIO_CODEC != "copy" and AUDIO_BITRATE:
+        command.extend(["-b:a", AUDIO_BITRATE])
+
+    command.extend([
         "-shortest",
         str(output_video),
-    ]
+    ])
 
     logger.info("Muxing original audio")
 
@@ -149,7 +216,7 @@ def probe_video(video: Path) -> dict:
     """
 
     command = [
-        "ffprobe",
+        FFPROBE,
         "-v",
         "quiet",
         "-print_format",
@@ -164,9 +231,12 @@ def probe_video(video: Path) -> dict:
     return json.loads(result.stdout)
 
 
-def get_fps(video: Path) -> float:
+def get_fps(video: Path) -> str:
     """
-    Return the video's frame rate.
+    Return the video's frame rate as a rational string (e.g. '30000/1001').
+
+    This is passed directly to FFmpeg's -framerate argument to avoid
+    floating-point drift and audio sync issues.
     """
 
     metadata = probe_video(video)
@@ -175,9 +245,10 @@ def get_fps(video: Path) -> float:
 
         if stream["codec_type"] == "video":
 
-            numerator, denominator = stream["r_frame_rate"].split("/")
+            fps = stream.get("r_frame_rate") or stream.get("avg_frame_rate")
 
-            return float(numerator) / float(denominator)
+            if fps and fps != "0/0":
+                return fps
 
     raise FFmpegError("No video stream found.")
 
@@ -190,6 +261,20 @@ def get_duration(video: Path) -> float:
     metadata = probe_video(video)
 
     return float(metadata["format"]["duration"])
+
+
+def estimate_total_frames(duration: float, fps: str) -> int:
+    """
+    Estimate the total number of frames from duration and a rational fps string.
+    """
+
+    if "/" in fps:
+        num, den = fps.split("/")
+        rate = Fraction(int(num), int(den))
+    else:
+        rate = Fraction(fps)
+
+    return max(1, int(math.ceil(float(rate) * duration)))
 
 
 def has_audio(video: Path) -> bool:

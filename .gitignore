@@ -28,6 +28,9 @@ Output/*
 Models/*.pth
 Models/*.onnx
 
+# Bundled external tools
+modules/
+
 # IDE
 .vscode/
 .idea/

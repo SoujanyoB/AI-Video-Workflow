@@ -1,0 +1,62 @@
+{
+  "name": "AI-Video-Workflow",
+  "description": "Self-contained dependency manifest for the AI video enhancement pipeline.",
+  "python": {
+    "packages": {
+      "basicsr": "",
+      "realesrgan": "",
+      "opencv-python": "",
+      "tqdm": ""
+    },
+    "extra": {
+      "torch": {
+        "packages": {
+          "torch": "",
+          "torchvision": ""
+        },
+        "pip_args": {
+          "win32": ["--index-url", "https://download.pytorch.org/whl/cu118"],
+          "linux": ["--index-url", "https://download.pytorch.org/whl/cu118"],
+          "darwin": []
+        },
+        "note": "Windows/Linux use CUDA 11.8 wheels by default. macOS uses CPU wheels from PyPI. Edit pip_args if you need CPU-only on Windows/Linux."
+      }
+    }
+  },
+  "models": {
+    "install_dir": "modules/models",
+    "files": {
+      "RealESRGAN_x4plus.pth": {
+        "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+        "enabled": true
+      },
+      "RealESRNet_x4plus.pth": {
+        "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/RealESRNet_x4plus.pth",
+        "enabled": false
+      },
+      "RealESRGAN_x2plus.pth": {
+        "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
+        "enabled": false
+      },
+      "RealESRGAN_x4plus_anime_6B.pth": {
+        "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
+        "enabled": false
+      }
+    }
+  },
+  "binaries": {
+    "ffmpeg": {
+      "version": "6.1",
+      "source": "ffbinaries",
+      "components": ["ffmpeg", "ffprobe"],
+      "install_dir": "modules/ffmpeg",
+      "bin_dir": "modules/ffmpeg/bin",
+      "platform_map": {
+        "win32": "windows-64",
+        "linux": "linux-64",
+        "darwin": "osx-64"
+      },
+      "api_url_template": "https://ffbinaries.com/api/v1/version/{version}"
+    }
+  }
+}
